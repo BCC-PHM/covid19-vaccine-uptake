@@ -13,14 +13,6 @@ import numpy as np
 custom_params = {"axes.spines.right": False, "axes.spines.top": False}
 sns.set_theme(style="ticks", rc=custom_params)
 
-def conf_int(p, n):
-    
-    Z = 1.64485
-    lower = p-(p + Z**2/(2*n) - Z * np.sqrt((p*(1-p)/n) + Z**2/(4*n**2))) / (1 + Z**2/n)
-    upper = (p + Z**2/(2*n) + Z * np.sqrt((p*(1-p)/n) + Z**2/(4*n**2))) / (1 + Z**2/n)-p
-    
-    return (upper + lower)/2
-
 #%% Load data
 data = pd.read_csv(
     config.vaccine_data_path + "\\covid_vac_rates-oct23_to_sept24.csv"
@@ -61,10 +53,11 @@ for age_grp in np.unique(data["Age_Group"]):
                             title = "Covid Vaccine\nUptake %",
                             #ttest = True,
                             letter="",
-                            #IMD_ticks = ["1", "2", "3", "4", "5"],
+                            CI_method = "Byar",
                             palette = plot_colors[sex],
                             )
         save_name = "..\\output\\eth-IMD-matricies\\" + "CovidMat-{}-{}.pdf".format(age_grp, sex)
 
         fig.savefig(save_name, bbox_inches = "tight",
                     dpi = 300)
+plt.close("all")

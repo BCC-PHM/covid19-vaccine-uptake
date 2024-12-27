@@ -312,6 +312,8 @@ IMD_uptake <- vaccine_data %>%
       ),
     by = join_by("AgeBand", "IMD_quintile", "Sex")
   ) %>%
+  filter(AgeBand != "NA-NA",
+         Ethnicity != "Not stated") %>%
   mutate(
     # Impute NA in N with 0
     N = case_when(
@@ -375,3 +377,67 @@ p4
 
 ggsave("output/vaccine-uptake-IMD.png", p4,
        width = 9, height = 7)
+
+
+## Uptake % by ethnicity and IMD
+library("EquiR")
+
+IMD_eth_uptake <- vaccine_data %>%
+  filter(
+    gender %in% c("Male", "Female"),
+    !is.na(IMD_quintile)
+  ) %>%
+  mutate(
+    AgeBand = paste0(
+      floor(age / 5) * 5,
+      "-",
+      floor(age / 5) * 5 + 4
+    ),
+    Sex = gender
+  ) %>% 
+  count(IMD_quintile, Ethnicity, BroadEthnicity, Sex, AgeBand) %>%
+  left_join(
+    GP_reg_data %>%
+      filter(!is.na(IMD_quintile)) %>%
+      group_by(AgeBand, Ethnicity, IMD_quintile, Sex) %>%
+      summarise(
+        N = sum(Observations, na.rm = T)
+      ),
+    by = join_by("AgeBand", "IMD_quintile","Ethnicity", "Sex")
+  )  %>%
+  filter(AgeBand != "NA-NA",
+         Ethnicity != "Not stated") %>%
+  mutate(
+    # Impute NA in N with 0
+    N = case_when(
+      is.na(N) ~ 0,
+      TRUE ~ N
+    ),
+    Age_Group = case_when(
+      AgeBand %in% c("65-69","70-74","75-79") ~ "65-79",
+      AgeBand %in% c("80-84", "85-89","90-94","95-99","100-104") ~ "80+",
+      TRUE ~ "Less than 65"
+    ),
+    IMD_quintile = as.character(IMD_quintile),
+  ) %>%
+  group_by(
+    BroadEthnicity, IMD_quintile, Sex, Age_Group
+  ) %>%
+  summarise(
+    n = sum(n),
+    N_GP = sum(N),
+    p_GP = n/N_GP,
+    perc_GP = 100 * p_GP,
+    Z = qnorm(0.975),
+    LowerCI95 = 100 * n * (1 - 1/(9*n) - Z/3 * sqrt(1/(n+1)))**3/N_GP,
+    UpperCI95 = 100 * (n + 1) * (1 - 1/(9*(n + 1)) + Z/3 * sqrt(1/(n + 1)))**3/N_GP
+  )
+
+# Save for plotting in python using EquiPy
+write.csv(
+  IMD_eth_uptake,
+  paste0(
+    vaccine_data_path,
+    "/covid_vac_rates-oct23_to_sept24.csv"
+    )
+  )

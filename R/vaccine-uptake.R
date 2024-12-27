@@ -3,6 +3,8 @@ library(dplyr)
 library(ggplot2)
 library(see)
 
+LSOA_IMD_lookup <- read.csv("data/WM-LSOA-lookup.csv")
+
 # Only load vaccine data if it's not already loaded
 if(!exists("vaccine_data")) {
   vaccine_data <- read.csv(
@@ -36,7 +38,10 @@ if(!exists("vaccine_data")) {
       Ethnicity = gsub("black", "Black", Ethnicity),
       Ethnicity = gsub("african", "African", Ethnicity),
       Ethnicity = gsub("caribbean", "Caribbean", Ethnicity),
-    )%>%
+    ) %>%
+    left_join(LSOA_IMD_lookup %>%
+                select(-Locality),
+              by = join_by(LSOA)) %>%
     arrange(BroadEthnicity, Ethnicity)
   eth_order <- rev(unique(vaccine_data$Ethnicity))
   # Order by Broad ethnicity and alphabetical 
@@ -59,8 +64,16 @@ if(!exists("GP_reg_data")) {
         Ethnic_Description_National == "British" ~ "White British",
         TRUE ~ Ethnic_Description_National
       )
-    )
+    ) %>%
+    rename(LSOA = LSOA_2011,
+           Sex = Gender) %>%
+    left_join(LSOA_IMD_lookup,
+              by = join_by(LSOA))
 }
+
+
+
+
 
 #################################################################
 #           Uptake distributions (Age, ethnicity, IMD)          # 
@@ -171,7 +184,7 @@ ggsave("output/eth_dist.png", p2,
 #################################################################
 
 # Plot uptake rates by age group (< 65, 65-80, 80+), ethnicity, and sex
-uptake_rates <- vaccine_data %>%
+eth_uptake_rates <- vaccine_data %>%
   filter(
     gender %in% c("Male", "Female")
   ) %>%
@@ -186,7 +199,6 @@ uptake_rates <- vaccine_data %>%
   count(Ethnicity, BroadEthnicity, Sex, AgeBand) %>%
   left_join(
     GP_reg_data %>%
-      rename(Sex = Gender) %>%
       group_by(AgeBand, Ethnicity, Sex) %>%
       summarise(
         N = sum(Observations, na.rm = T)
@@ -220,12 +232,12 @@ uptake_rates <- vaccine_data %>%
     UpperCI95 = 100 * (n + 1) * (1 - 1/(9*(n + 1)) + Z/3 * sqrt(1/(n + 1)))**3/N_GP
   )
 
-uptake_rates$Ethnicity <- factor(
-  uptake_rates$Ethnicity,
+eth_uptake_rates$Ethnicity <- factor(
+  eth_uptake_rates$Ethnicity,
   levels = eth_order
 )
 
-uptake_rates_age <- uptake_rates %>%
+uptake_rates_age <- eth_uptake_rates %>%
   group_by(Age_Group) %>%
   summarise(
     n = sum(n),
@@ -274,4 +286,92 @@ p3 <- ggplot(uptake_rates, aes(y = Ethnicity, x = perc_GP, fill = Sex)) +
 p3
 
 ggsave("output/vaccine-uptake.png", p3,
+       width = 9, height = 7)
+
+# Uptake by IMD
+IMD_uptake <- vaccine_data %>%
+  filter(
+    gender %in% c("Male", "Female"),
+    !is.na(IMD_quintile)
+  ) %>%
+  mutate(
+    AgeBand = paste0(
+      floor(age / 5) * 5,
+      "-",
+      floor(age / 5) * 5 + 4
+    ),
+    Sex = gender
+  ) %>% 
+  count(IMD_quintile, Sex, AgeBand) %>%
+  left_join(
+    GP_reg_data %>%
+      filter(!is.na(IMD_quintile)) %>%
+      group_by(AgeBand, IMD_quintile, Sex) %>%
+      summarise(
+        N = sum(Observations, na.rm = T)
+      ),
+    by = join_by("AgeBand", "IMD_quintile", "Sex")
+  ) %>%
+  mutate(
+    # Impute NA in N with 0
+    N = case_when(
+      is.na(N) ~ 0,
+      TRUE ~ N
+    ),
+    Age_Group = case_when(
+      AgeBand %in% c("65-69","70-74","75-79") ~ "65-79",
+      AgeBand %in% c("80-84", "85-89","90-94","95-99","100-104") ~ "80+",
+      TRUE ~ "Less than 65"
+    ),
+    IMD_quintile = as.character(IMD_quintile),
+  ) %>%
+  group_by(
+    IMD_quintile, Sex, Age_Group
+  ) %>%
+  summarise(
+    n = sum(n),
+    N_GP = sum(N),
+    p_GP = n/N_GP,
+    perc_GP = 100 * p_GP,
+    Z = qnorm(0.975),
+    LowerCI95 = 100 * n * (1 - 1/(9*n) - Z/3 * sqrt(1/(n+1)))**3/N_GP,
+    UpperCI95 = 100 * (n + 1) * (1 - 1/(9*(n + 1)) + Z/3 * sqrt(1/(n + 1)))**3/N_GP
+  )
+
+p4 <- ggplot(IMD_uptake, aes(y = IMD_quintile, x = perc_GP, fill = Sex)) +
+  geom_col(position = "dodge") +
+  geom_errorbar(
+    aes(xmin = LowerCI95, 
+        xmax = UpperCI95),
+    position = position_dodge(width = 1),
+    linewidth = 0.5,
+    width = 0.3
+  ) +
+  theme_bw() +
+  facet_wrap(
+    ~~factor(Age_Group, levels=c("Less than 65", "65-79", "80+")), 
+    ncol = 3, 
+    scales = "free_x"
+  ) +
+  geom_vline(
+    data = uptake_rates_age,
+    aes(xintercept = perc_GP,
+        linetype = "BSol Average")
+  ) +
+  labs(
+    y = "",
+    x = "Vaccine uptake %",
+    linetype = "",
+    title = "Vaccine Uptake % by IMD Quintile, Age, and Sex\n(October 23 – September 24)"
+  ) +
+  scale_fill_manual(values = c("#18981a", "#880990")) +
+  scale_linetype_manual(values = c("dashed")) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5)
+  ) 
+
+p4
+
+ggsave("output/vaccine-uptake-IMD.png", p4,
        width = 9, height = 7)

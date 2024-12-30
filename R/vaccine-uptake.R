@@ -22,6 +22,12 @@ if(!exists("vaccine_data")) {
       LSOA %in% LSOA11@data$LSOA11
     ) %>%
     mutate(
+      # Fix excel madness
+      AgeBand = case_when(
+        AgeBand == "05-Sep" ~ "5-19",
+        AgeBand == "Oct-14" ~ "10-14",
+        TRUE ~ AgeBand
+      ),
       Ethnicity = gsub("\\w: ","", ethnicity_description),
       Ethnicity = case_when(
         Ethnicity == "British" ~ "White British",
@@ -72,6 +78,12 @@ if(!exists("GP_reg_data")) {
       LSOA_2011 %in% LSOA11@data$LSOA11
     ) %>%
     mutate(
+      # Fix excel madness
+      AgeBand = case_when(
+        AgeBand == "05-Sep" ~ "5-19",
+        AgeBand == "Oct-14" ~ "10-14",
+        TRUE ~ AgeBand
+      ),
       Ethnicity = case_when(
         Ethnic_Description_National == "British" ~ "White British",
         TRUE ~ Ethnic_Description_National
@@ -639,55 +651,104 @@ write.csv(
 # - White British
 # For everyone aged 65+
 
-unvaxed_LSOA <- vaccine_data %>%
+unvaxed_LSOA <- GP_reg_data %>%
   filter(
-    age >= 65
-  ) %>%
-  count(LSOA, Ethnicity) %>%
+    AgeBand %in% c("65-69","70-74","75-79","80-84","85-89","90-94","95-99",
+                   "100-104","105-109","110-114"),
+    Ethnicity != "Not Known",
+    LSOA %in% LSOA11@data$LSOA11
+  ) %>% 
+  group_by(LSOA, Ethnicity, AgeBand, Constituency) %>%
+  summarise(N = sum(Observations)) %>%
   left_join(
-    GP_reg_data %>%
-      filter(!is.na(IMD_quintile)) %>%
-      group_by(Ethnicity, LSOA) %>%
-      summarise(
-        N = sum(Observations, na.rm = T)
-      ),
-    by = join_by("Ethnicity", "LSOA")
+    vaccine_data %>%
+      filter(
+        Ethnicity != "Not stated"
+      ) %>%
+      count(LSOA, Ethnicity, AgeBand),
+    by = join_by("LSOA", "Ethnicity","AgeBand")
   ) %>%
   mutate(
-    # Impute NA in N with 0
-    N = case_when(
-      is.na(N) ~ 0,
-      TRUE ~ N
+    n = case_when(
+      is.na(n) ~ 0,
+      TRUE ~ n
+    )
+  ) %>% 
+  group_by(
+    Constituency, LSOA, Ethnicity
+  ) %>%
+  summarise(
+    number_unvaxed = sum(N) - sum(n),
+    total_number = sum(N)
+  ) %>%
+  mutate(
+    number_unvaxed = case_when(
+      number_unvaxed < 0 ~ 0,
+      TRUE ~ number_unvaxed
     )
   ) %>%
-  mutate(
-    # If value is < 0 (i.e. people double vaxed) then fix to zero
-    number_unvaxed = case_when(
-      N - n >= 0 ~ N - n,
-      TRUE ~ 0
-    ),
-    LSOA11 = LSOA
-  )
+  rename(LSOA11 = LSOA)
 
-focus_eths <- c("Indian", "Pakistani", "Caribbean",
-                "Any other white background", 
-                "White British")
-for (eth_i in focus_eths) {
-  unvaxed_LSOA_i <- unvaxed_LSOA %>%
-    filter(
-      Ethnicity == eth_i
-    ) %>%
+for (eth_i in c(eth_order, "All")) {
+  if (eth_i != "All") {
+    unvaxed_LSOA_i <- unvaxed_LSOA %>%
+      filter(
+        Ethnicity == eth_i
+      ) 
+    
+    map_title <- paste(
+      "Estimated number of",
+      eth_i,
+      "residents aged 65+ who didn't receive a Covid-19",
+      "vaccine between Oct 2023 and Sept 2024"
+    )
+    
+  } else {
+    unvaxed_LSOA_i <- unvaxed_LSOA %>%
+      group_by(
+        LSOA11, Constituency
+      ) %>%
+      summarise(
+        number_unvaxed = sum(number_unvaxed),
+        total_number = sum(total_number)
+      )
+    
+    map_title <- paste(
+      "Estimated number of residents",
+      "of all ethnicities",
+      "aged 65+ who didn't receive a Covid-19 vaccine",
+      "between Oct 2023 and Sept 2024"
+    )
+  }
+
+  print(eth_i)
+  print(paste(
+    sum(unvaxed_LSOA_i$number_unvaxed),
+    "of",
+    sum(unvaxed_LSOA_i$total_number)
+    )
+    )
+  print(unvaxed_LSOA_i %>%
+          group_by(Constituency) %>%
+          summarise(
+            number_unvaxed = sum(number_unvaxed),
+            total_number = sum(total_number)
+          ) %>%
+          ungroup() %>%
+          mutate(
+            perc = round(100*number_unvaxed / sum(number_unvaxed), 1)
+          ) %>%
+          arrange(desc(perc)))
+
+  # Make sure that counts less than 5 are suppressed
+  unvaxed_LSOA_i <- unvaxed_LSOA_i %>%
     mutate(
       number_unvaxed = case_when(
         number_unvaxed < 5 ~ 0,
         TRUE ~ number_unvaxed
       )
     )
-  map_title <- paste(
-    "Estimated number of",
-    eth_i,
-    "residents aged 65+ who didn't receive a Covid-19 vaccine between Oct 2023 and Sept 2024"
-  )
+
   
   map <- plot_map(
     unvaxed_LSOA_i,

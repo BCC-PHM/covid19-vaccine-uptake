@@ -353,7 +353,7 @@ p4 <- ggplot(IMD_uptake, aes(y = IMD_quintile, x = perc_GP, fill = Sex)) +
   ) +
   theme_bw() +
   facet_wrap(
-    ~~factor(Age_Group, levels=c("Less than 65", "65-79", "80+")), 
+    ~factor(Age_Group, levels=c("Less than 65", "65-79", "80+")), 
     ncol = 3, 
     scales = "free_x"
   ) +
@@ -469,9 +469,97 @@ write.csv(
   )
 )
 
+#################################################################
+#               Calculate areas of opportunity                  # 
+#################################################################
 
+# Assuming that we want each community to have at least one Covid-19
+# vaccine within the last 12 months, how many people in each group
+# are "un-vaccinated in the last 12 months".
 
 # TODO:
-#  - Calculate estimated number not vaccinated for each ethnic group
+#  - Calculate estimated number not vaccinated for each ethnic group  
 #  - Plot estimated number not vaccinated across Birmingham
 #  - Plot estimated number not vaccinated for each ethnicity
+
+unvaxed <- vaccine_data %>%
+  filter(
+    gender %in% c("Male", "Female"),
+    !is.na(IMD_quintile)
+  ) %>%
+  mutate(
+    AgeBand = paste0(
+      floor(age / 5) * 5,
+      "-",
+      floor(age / 5) * 5 + 4
+    ),
+    Sex = gender
+  ) %>%
+  filter(
+    AgeBand != "NA-NA",
+    Ethnicity != "Not stated"
+  ) %>%
+  count(Ethnicity, IMD_quintile, Sex, AgeBand) %>%
+  left_join(
+    GP_reg_data %>%
+      filter(!is.na(IMD_quintile)) %>%
+      group_by(Ethnicity, AgeBand, IMD_quintile, Sex) %>%
+      summarise(
+        N = sum(Observations, na.rm = T)
+      ),
+    by = join_by("Ethnicity", "AgeBand", "IMD_quintile", "Sex")
+  ) %>%
+  mutate(
+    # Impute NA in N with 0
+    N = case_when(
+      is.na(N) ~ 0,
+      TRUE ~ N
+    ),
+    Age_Group = case_when(
+      AgeBand %in% c("65-69","70-74","75-79") ~ "65-79",
+      AgeBand %in% c("80-84", "85-89","90-94","95-99","100-104") ~ "80+",
+      TRUE ~ "Less than 65"
+    )
+  ) %>% 
+  group_by(
+    Age_Group, Sex, Ethnicity, IMD_quintile
+  ) %>%
+  summarise(
+    N = sum(N),
+    n = sum(n)
+  ) %>%
+  mutate(
+    # If value is < 0 (i.e. people double vaxed) then fix to zero
+    number_unvaxed = max(0, N - n)
+  )
+
+unvaxed$Ethnicity <- factor(
+  unvaxed$Ethnicity,
+  levels = eth_order
+)
+
+plt_unvaxed_eth <- unvaxed %>%
+  group_by(Sex, Ethnicity, Age_Group) %>%
+  summarise(number_unvaxed = sum(number_unvaxed)) %>%
+  ggplot(aes(y = Ethnicity, x = number_unvaxed, fill = Sex)) +
+  geom_col(position = "dodge") +
+  theme_bw() +
+  facet_wrap(
+    ~factor(Age_Group, levels=c("Less than 65", "65-79", "80+")), 
+    ncol = 3, 
+    scales = "free_x"
+    ) +
+  labs(
+    x = "Estimated Number not Vaccinated for Covid-19",
+    y = "",
+    title = "Estimated Number of Residents not Vaccinated for Covid-19 by IMD Quintile, Age, and Sex\n(October 2023 – September 2024)"
+  ) +
+  scale_fill_manual(values = c("#18981a", "#880990")) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5)
+  ) 
+
+plt_unvaxed_eth
+ggsave("output/unvaccinated/unvaccinated_eth.png", plt_unvaxed_eth,
+       width = 9, height = 7)

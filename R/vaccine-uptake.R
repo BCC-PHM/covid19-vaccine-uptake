@@ -33,26 +33,13 @@ if(!exists("vaccine_data")) {
         Ethnicity == "British" ~ "White British",
         TRUE ~ Ethnicity
       ),
-      BroadEthnicity = case_when(
-        Ethnicity %in% c("Pakistani", "Indian", 
-                         "Bangladeshi", "Any other asian background") ~ "Asian",
-        Ethnicity %in% c("African", "Caribbean", 
-                         "Any other black background") ~ "Black",
-        Ethnicity %in% c("White and black caribbean", 
-                         "White and black african", 
-                         "White and asian",
-                         "Any other mixed background") ~ "Mixed",
-        Ethnicity %in% c("White British", "Irish", 
-                         "Any other white background") ~ "White",
-        Ethnicity %in% c("Chinese","Any other ethnic group") ~ "Other",
-        Ethnicity %in% c("Not stated") ~ "Unknown"
-      ),
       # Fix capitalisation
       Ethnicity = gsub("asian", "Asian", Ethnicity),
       Ethnicity = gsub("black", "Black", Ethnicity),
       Ethnicity = gsub("african", "African", Ethnicity),
       Ethnicity = gsub("caribbean", "Caribbean", Ethnicity),
     ) %>%
+    rename(Sex = gender) %>%
     left_join(LSOA_IMD_lookup %>%
                 select(-Locality),
               by = join_by(LSOA)) %>%
@@ -87,6 +74,20 @@ if(!exists("GP_reg_data")) {
       Ethnicity = case_when(
         Ethnic_Description_National == "British" ~ "White British",
         TRUE ~ Ethnic_Description_National
+      ),
+      BroadEthnicity = case_when(
+        Ethnicity %in% c("Pakistani", "Indian", 
+                         "Bangladeshi", "Any other Asian background") ~ "Asian",
+        Ethnicity %in% c("African", "Caribbean", 
+                         "Any other Black background") ~ "Black",
+        Ethnicity %in% c("White and Black Caribbean", 
+                         "White and Black African", 
+                         "White and Asian",
+                         "Any other mixed background") ~ "Mixed",
+        Ethnicity %in% c("White British", "Irish", 
+                         "Any other white background") ~ "White",
+        Ethnicity %in% c("Chinese","Any other ethnic group") ~ "Other",
+        Ethnicity %in% c("Not stated") ~ "Unknown"
       )
     ) %>%
     rename(LSOA = LSOA_2011,
@@ -205,40 +206,35 @@ ggsave("output/eth_dist.png", p2,
 #################################################################
 
 # Plot uptake rates by age group (< 65, 65-80, 80+), ethnicity, and sex
-eth_uptake_rates <- vaccine_data %>%
-  filter(
-    gender %in% c("Male", "Female")
+eth_uptake_rates <- GP_reg_data %>%
+  group_by(AgeBand, BroadEthnicity, Ethnicity, Sex) %>%
+  summarise(
+    N = sum(Observations, na.rm = T)
   ) %>%
-  mutate(
-    AgeBand = paste0(
-      floor(age / 5) * 5,
-      "-",
-      floor(age / 5) * 5 + 4
-    ),
-    Sex = gender
-  ) %>% 
-  count(Ethnicity, BroadEthnicity, Sex, AgeBand) %>%
-  left_join(
-    GP_reg_data %>%
-      group_by(AgeBand, Ethnicity, Sex) %>%
-      summarise(
-        N = sum(Observations, na.rm = T)
-      ),
+  full_join(
+    vaccine_data %>% 
+      count(Ethnicity, Sex, AgeBand),
     by = join_by("AgeBand", "Ethnicity", "Sex")
-  ) %>%
+    ) %>%
   filter(AgeBand != "NA-NA",
-         Ethnicity != "Not stated") %>%
+         Ethnicity != "Not stated",
+         Ethnicity != "Not Known",
+         Sex %in% c("Male", "Female")) %>%
   mutate(
-    # Impute NA in N with 0
+    # Impute NA in N and n with 0
     N = case_when(
       is.na(N) ~ 0,
       TRUE ~ N
+    ),
+    n = case_when(
+      is.na(n) ~ 0,
+      TRUE ~ n
     ),
     Age_Group = case_when(
       AgeBand %in% c("65-69","70-74","75-79") ~ "65-79",
       AgeBand %in% c("80-84", "85-89","90-94","95-99","100-104") ~ "80+",
       TRUE ~ "Less than 65"
-    )
+    ),
   ) %>%
   group_by(
     Ethnicity, BroadEthnicity, Sex, Age_Group
@@ -310,38 +306,28 @@ ggsave("output/vaccine-uptake.png", p3,
        width = 9, height = 7)
 
 # Uptake by IMD
-IMD_uptake <- vaccine_data %>%
-  filter(
-    gender %in% c("Male", "Female"),
-    !is.na(IMD_quintile)
+IMD_uptake <- GP_reg_data %>%
+  group_by(AgeBand, IMD_quintile, Sex) %>%
+  summarise(
+    N = sum(Observations, na.rm = T)
   ) %>%
-  mutate(
-    AgeBand = paste0(
-      floor(age / 5) * 5,
-      "-",
-      floor(age / 5) * 5 + 4
-    ),
-    Sex = gender
-    ) %>%
-  filter(
-    AgeBand != "NA-NA",
-    Ethnicity != "Not stated"
-    ) %>%
-  count(IMD_quintile, Sex, AgeBand) %>%
-  left_join(
-    GP_reg_data %>%
-      filter(!is.na(IMD_quintile)) %>%
-      group_by(AgeBand, IMD_quintile, Sex) %>%
-      summarise(
-        N = sum(Observations, na.rm = T)
-      ),
+  full_join(
+    vaccine_data %>% 
+      count(IMD_quintile, Sex, AgeBand),
     by = join_by("AgeBand", "IMD_quintile", "Sex")
   ) %>%
+  filter(AgeBand != "NA-NA",
+         !is.na(IMD_quintile),
+         Sex %in% c("Male", "Female")) %>%
   mutate(
-    # Impute NA in N with 0
+    # Impute NA in N and n with 0
     N = case_when(
       is.na(N) ~ 0,
       TRUE ~ N
+    ),
+    n = case_when(
+      is.na(n) ~ 0,
+      TRUE ~ n
     ),
     Age_Group = case_when(
       AgeBand %in% c("65-69","70-74","75-79") ~ "65-79",
@@ -404,36 +390,31 @@ ggsave("output/vaccine-uptake-IMD.png", p4,
 
 ## Uptake % by ethnicity and IMD
 
-IMD_eth_uptake <- vaccine_data %>%
-  filter(
-    gender %in% c("Male", "Female"),
-    !is.na(IMD_quintile)
+IMD_eth_uptake <- IMD_uptake <- GP_reg_data %>%
+  group_by(AgeBand, Ethnicity, BroadEthnicity, IMD_quintile, Sex) %>%
+  summarise(
+    N = sum(Observations, na.rm = T)
   ) %>%
-  mutate(
-    AgeBand = paste0(
-      floor(age / 5) * 5,
-      "-",
-      floor(age / 5) * 5 + 4
-    ),
-    Sex = gender
-  ) %>% 
-  count(IMD_quintile, Ethnicity, BroadEthnicity, Sex, AgeBand) %>%
-  left_join(
-    GP_reg_data %>%
-      filter(!is.na(IMD_quintile)) %>%
-      group_by(AgeBand, Ethnicity, IMD_quintile, Sex) %>%
-      summarise(
-        N = sum(Observations, na.rm = T)
-      ),
-    by = join_by("AgeBand", "IMD_quintile","Ethnicity", "Sex")
-  )  %>%
+  full_join(
+    vaccine_data %>% 
+      count(IMD_quintile, Sex, Ethnicity, AgeBand),
+    by = join_by("AgeBand", "Ethnicity","IMD_quintile", "Sex")
+  ) %>%
   filter(AgeBand != "NA-NA",
-         Ethnicity != "Not stated") %>%
+         !is.na(IMD_quintile),
+         Sex %in% c("Male", "Female"),
+         Ethnicity != "Not stated",
+         Ethnicity != "Not Known"
+         ) %>%
   mutate(
-    # Impute NA in N with 0
+    # Impute NA in N and n with 0
     N = case_when(
       is.na(N) ~ 0,
       TRUE ~ N
+    ),
+    n = case_when(
+      is.na(n) ~ 0,
+      TRUE ~ n
     ),
     Age_Group = case_when(
       AgeBand %in% c("65-69","70-74","75-79") ~ "65-79",
@@ -504,38 +485,30 @@ write.csv(
 #  - Plot estimated number not vaccinated across Birmingham
 #  - Plot estimated number not vaccinated for each ethnicity
 
-unvaxed <- vaccine_data %>%
-  filter(
-    gender %in% c("Male", "Female"),
-    !is.na(IMD_quintile)
+unvaxed <- GP_reg_data %>%
+  group_by(AgeBand, BroadEthnicity, Ethnicity, IMD_quintile, Sex) %>%
+  summarise(
+    N = sum(Observations, na.rm = T)
   ) %>%
+  full_join(
+    vaccine_data %>% 
+      count(Ethnicity, Sex,IMD_quintile, AgeBand),
+    by = join_by("AgeBand", "Ethnicity", "IMD_quintile", "Sex")
+  ) %>%
+  filter(AgeBand != "NA-NA",
+         Ethnicity != "Not stated",
+         Ethnicity != "Not Known",
+         Sex %in% c("Male", "Female"),
+         !is.na(IMD_quintile)) %>%
   mutate(
-    AgeBand = paste0(
-      floor(age / 5) * 5,
-      "-",
-      floor(age / 5) * 5 + 4
-    ),
-    Sex = gender
-  ) %>%
-  filter(
-    AgeBand != "NA-NA",
-    Ethnicity != "Not stated"
-  ) %>%
-  count(Ethnicity, IMD_quintile, Sex, AgeBand) %>%
-  left_join(
-    GP_reg_data %>%
-      filter(!is.na(IMD_quintile)) %>%
-      group_by(Ethnicity, AgeBand, IMD_quintile, Sex) %>%
-      summarise(
-        N = sum(Observations, na.rm = T)
-      ),
-    by = join_by("Ethnicity", "AgeBand", "IMD_quintile", "Sex")
-  ) %>%
-  mutate(
-    # Impute NA in N with 0
+    # Impute NA in N and n with 0
     N = case_when(
       is.na(N) ~ 0,
       TRUE ~ N
+    ),
+    n = case_when(
+      is.na(n) ~ 0,
+      TRUE ~ n
     ),
     Age_Group = case_when(
       AgeBand %in% c("65-69","70-74","75-79") ~ "65-79",

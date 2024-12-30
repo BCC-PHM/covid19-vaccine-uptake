@@ -552,7 +552,7 @@ plt_unvaxed_eth <- unvaxed %>%
   labs(
     x = "Estimated Number not Vaccinated for Covid-19",
     y = "",
-    title = "Estimated Number of Residents not Vaccinated for Covid-19 by IMD Quintile, Age, and Sex\n(October 2023 – September 2024)"
+    title = "Estimated Number of Residents not Vaccinated for Covid-19 by Ethnicity, Age, and Sex\n(October 2023 – September 2024)"
   ) +
   scale_fill_manual(values = c("#18981a", "#880990")) +
   theme(
@@ -562,4 +562,31 @@ plt_unvaxed_eth <- unvaxed %>%
 
 plt_unvaxed_eth
 ggsave("output/unvaccinated/unvaccinated_eth.png", plt_unvaxed_eth,
+       width = 9, height = 7)
+
+plt_unvaxed_IMD <- unvaxed %>%
+  mutate(IMD_quintile = as.character(IMD_quintile)) %>%
+  group_by(Sex, IMD_quintile, Age_Group) %>%
+  summarise(number_unvaxed = sum(number_unvaxed)) %>%
+  ggplot(aes(y = IMD_quintile, x = number_unvaxed, fill = Sex)) +
+  geom_col(position = "dodge") +
+  theme_bw() +
+  facet_wrap(
+    ~factor(Age_Group, levels=c("Less than 65", "65-79", "80+")), 
+    ncol = 3, 
+    scales = "free_x"
+  ) +
+  labs(
+    x = "Estimated Number not Vaccinated for Covid-19",
+    y = "",
+    title = "Estimated Number of Residents not Vaccinated for Covid-19 by IMD Quintile, Age, and Sex\n(October 2023 – September 2024)"
+  ) +
+  scale_fill_manual(values = c("#18981a", "#880990")) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5)
+  ) 
+
+plt_unvaxed_IMD
+ggsave("output/unvaccinated/unvaccinated_imd.png", plt_unvaxed_IMD,
        width = 9, height = 7)

@@ -89,12 +89,14 @@ for age_grp in np.unique(data2["Age_Group"]):
         
         data_sex = data_age[data_age["Sex"] == sex]
         
+        # Calcuate counts pivot
         N_table = data_sex[["Ethnicity", "IMD Quintile", "number_unvaxed"]].pivot_table(
             values = "number_unvaxed", 
             index = "IMD Quintile",
             columns = "Ethnicity"
             ).fillna(0).astype(int).loc[:, eth_order]
-
+        
+        # Plot inequality matrix
         fig = Mat.inequality_map(N_table, 
                             title = "# Unvaccinated",
                             #ttest = True,

@@ -2,6 +2,7 @@ source("R/config.R")
 library(dplyr)
 library(ggplot2)
 library(see)
+library(BSol.mapR)
 
 LSOA_IMD_lookup <- read.csv("data/WM-LSOA-lookup.csv")
 
@@ -70,9 +71,6 @@ if(!exists("GP_reg_data")) {
     left_join(LSOA_IMD_lookup,
               by = join_by(LSOA))
 }
-
-
-
 
 
 #################################################################
@@ -607,3 +605,76 @@ write.csv(
     "/covid_unvaccinated_counts-oct23_to_sept24.csv"
   )
 )
+
+# Map unvaccinated estimates in for each constituency for:
+# - Indian
+# - Pakistani
+# - Any other White background
+# - White British
+# For everyone aged 65+
+
+unvaxed_const <- vaccine_data %>%
+  filter(
+    age >= 65
+  ) %>%
+  count(LSOA, Ethnicity) %>%
+  left_join(
+    GP_reg_data %>%
+      filter(!is.na(IMD_quintile)) %>%
+      group_by(Ethnicity, LSOA) %>%
+      summarise(
+        N = sum(Observations, na.rm = T)
+      ),
+    by = join_by("Ethnicity", "LSOA")
+  ) %>%
+  mutate(
+    # Impute NA in N with 0
+    N = case_when(
+      is.na(N) ~ 0,
+      TRUE ~ N
+    )
+  ) %>%
+  mutate(
+    # If value is < 0 (i.e. people double vaxed) then fix to zero
+    number_unvaxed = case_when(
+      N - n >= 0 ~ N - n,
+      TRUE ~ 0
+    ),
+    LSOA11 = LSOA
+  )
+
+focus_eths <- c("Indian", "Pakistani", 
+                "Any other white background", 
+                "White British")
+for (eth_i in focus_eths) {
+  unvaxed_const_i <- unvaxed_const %>%
+    filter(
+      Ethnicity == eth_i
+    ) %>%
+    mutate(
+      number_unvaxed = case_when(
+        number_unvaxed < 5 ~ 0,
+        TRUE ~ number_unvaxed
+      )
+    )
+  map_title <- paste(
+    "Estimated number of",
+    eth_i,
+    "residents who didn't receive a Covid-19 vaccine between Oct 2023 and Sept 2024"
+  )
+  
+  map <- plot_map(
+    unvaxed_const_i,
+    "number_unvaxed",
+    map_type = "LSOA11",
+    fill_missing  = 0,
+    style = "cont",
+    map_title = map_title
+  )
+  save_name <- paste0(
+    "output/unvaccinated/maps/",
+    gsub(" ", "-", eth_i),
+    ".png"
+  )
+  save_map(map, save_name)
+}

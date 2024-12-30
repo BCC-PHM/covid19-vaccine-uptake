@@ -530,7 +530,10 @@ unvaxed <- vaccine_data %>%
   ) %>%
   mutate(
     # If value is < 0 (i.e. people double vaxed) then fix to zero
-    number_unvaxed = max(0, N - n)
+    number_unvaxed = case_when(
+      N - n >= 0 ~ N - n,
+      TRUE ~ 0
+    )
   )
 
 unvaxed$Ethnicity <- factor(
@@ -590,3 +593,17 @@ plt_unvaxed_IMD <- unvaxed %>%
 plt_unvaxed_IMD
 ggsave("output/unvaccinated/unvaccinated_imd.png", plt_unvaxed_IMD,
        width = 9, height = 7)
+
+# Estimate number for IMD and ethnicity
+unvaxed_count_eth_IMD <- unvaxed %>%
+  mutate(IMD_quintile = as.character(IMD_quintile)) %>%
+  group_by(Sex, Ethnicity, IMD_quintile, Age_Group) %>%
+  summarise(number_unvaxed = sum(number_unvaxed))
+# Save for plotting in python using EquiPy
+write.csv(
+  unvaxed_count_eth_IMD,
+  paste0(
+    vaccine_data_path,
+    "/covid_unvaccinated_counts-oct23_to_sept24.csv"
+  )
+)

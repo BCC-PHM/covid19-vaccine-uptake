@@ -180,7 +180,7 @@ ggsave("output/eth_dist.png", p2,
        width = 6, height = 7, dpi = 300)
 
 #################################################################
-#           Uptake rates (Age, ethnicity, sex)          # 
+#             Uptake rates (Age, ethnicity, sex)                # 
 #################################################################
 
 # Plot uptake rates by age group (< 65, 65-80, 80+), ethnicity, and sex
@@ -250,7 +250,7 @@ uptake_rates_age <- eth_uptake_rates %>%
   )
 
 
-p3 <- ggplot(uptake_rates, aes(y = Ethnicity, x = perc_GP, fill = Sex)) +
+p3 <- ggplot(eth_uptake_rates, aes(y = Ethnicity, x = perc_GP, fill = Sex)) +
   geom_col(position = "dodge") +
   geom_errorbar(
     aes(xmin = LowerCI95, 
@@ -272,9 +272,9 @@ p3 <- ggplot(uptake_rates, aes(y = Ethnicity, x = perc_GP, fill = Sex)) +
   ) +
   labs(
     y = "",
-    x = "Vaccine uptake %",
+    x = "Covid-19 Vaccine Uptake %",
     linetype = "",
-    title = "Vaccine Uptake % by Ethnicity, Age, and Sex\n(October 23 – September 24)"
+    title = "Covid-19 Vaccine Uptake % by Ethnicity, Age, and Sex\n(October 23 – September 24)"
   ) +
   scale_fill_manual(values = c("#18981a", "#880990")) +
   scale_linetype_manual(values = c("dashed")) +
@@ -301,7 +301,11 @@ IMD_uptake <- vaccine_data %>%
       floor(age / 5) * 5 + 4
     ),
     Sex = gender
-  ) %>% 
+    ) %>%
+  filter(
+    AgeBand != "NA-NA",
+    Ethnicity != "Not stated"
+    ) %>%
   count(IMD_quintile, Sex, AgeBand) %>%
   left_join(
     GP_reg_data %>%
@@ -312,8 +316,6 @@ IMD_uptake <- vaccine_data %>%
       ),
     by = join_by("AgeBand", "IMD_quintile", "Sex")
   ) %>%
-  filter(AgeBand != "NA-NA",
-         Ethnicity != "Not stated") %>%
   mutate(
     # Impute NA in N with 0
     N = case_when(
@@ -362,9 +364,9 @@ p4 <- ggplot(IMD_uptake, aes(y = IMD_quintile, x = perc_GP, fill = Sex)) +
   ) +
   labs(
     y = "",
-    x = "Vaccine uptake %",
+    x = "Covid-19 Vaccine Uptake %",
     linetype = "",
-    title = "Vaccine Uptake % by IMD Quintile, Age, and Sex\n(October 23 – September 24)"
+    title = "Covid-19 Vaccine Uptake % by IMD Quintile, Age, and Sex\n(October 23 – September 24)"
   ) +
   scale_fill_manual(values = c("#18981a", "#880990")) +
   scale_linetype_manual(values = c("dashed")) +
@@ -380,7 +382,6 @@ ggsave("output/vaccine-uptake-IMD.png", p4,
 
 
 ## Uptake % by ethnicity and IMD
-library("EquiR")
 
 IMD_eth_uptake <- vaccine_data %>%
   filter(
@@ -419,7 +420,10 @@ IMD_eth_uptake <- vaccine_data %>%
       TRUE ~ "Less than 65"
     ),
     IMD_quintile = as.character(IMD_quintile),
-  ) %>%
+  ) 
+
+
+IMD_broadeth_rate <- IMD_eth_uptake %>%
   group_by(
     BroadEthnicity, IMD_quintile, Sex, Age_Group
   ) %>%
@@ -435,9 +439,39 @@ IMD_eth_uptake <- vaccine_data %>%
 
 # Save for plotting in python using EquiPy
 write.csv(
-  IMD_eth_uptake,
+  IMD_broadeth_rate,
+  paste0(
+    vaccine_data_path,
+    "/covid_vac_rates_broad-oct23_to_sept24.csv"
+    )
+  )
+
+IMD_eth_rate <- IMD_eth_uptake %>%
+  group_by(
+    Ethnicity, IMD_quintile, Sex, Age_Group
+  ) %>%
+  summarise(
+    n = sum(n),
+    N_GP = sum(N),
+    p_GP = n/N_GP,
+    perc_GP = 100 * p_GP,
+    Z = qnorm(0.975),
+    LowerCI95 = 100 * n * (1 - 1/(9*n) - Z/3 * sqrt(1/(n+1)))**3/N_GP,
+    UpperCI95 = 100 * (n + 1) * (1 - 1/(9*(n + 1)) + Z/3 * sqrt(1/(n + 1)))**3/N_GP
+  )
+
+# Save for plotting in python using EquiPy
+write.csv(
+  IMD_eth_rate,
   paste0(
     vaccine_data_path,
     "/covid_vac_rates-oct23_to_sept24.csv"
-    )
   )
+)
+
+
+
+# TODO:
+#  - Calculate estimated number not vaccinated for each ethnic group
+#  - Plot estimated number not vaccinated across Birmingham
+#  - Plot estimated number not vaccinated for each ethnicity

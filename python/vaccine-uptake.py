@@ -13,15 +13,15 @@ import numpy as np
 custom_params = {"axes.spines.right": False, "axes.spines.top": False}
 sns.set_theme(style="ticks", rc=custom_params)
 
-#%% Load data
+#%% Broad ethnicity
+
 data = pd.read_csv(
-    config.vaccine_data_path + "\\covid_vac_rates-oct23_to_sept24.csv"
+    config.vaccine_data_path + "\\covid_vac_rates_broad-oct23_to_sept24.csv"
     )
 
 data["Ethnic Group"] = data["BroadEthnicity"]
 data["IMD Quintile"] = data["IMD_quintile"]
 
-#%% Create pivot tables
 plot_colors = {
     "Female" : "Greens",
     "Male" : "Purples"
@@ -56,7 +56,8 @@ for age_grp in np.unique(data["Age_Group"]):
                             CI_method = "Byar",
                             palette = plot_colors[sex],
                             )
-        save_name = "..\\output\\eth-IMD-matricies\\" + "CovidMat-{}-{}.pdf".format(age_grp, sex)
+        save_name = "..\\output\\eth-IMD-matricies\\" + \
+            "CovidMat-{}-{}.pdf".format(age_grp, sex)
 
         fig.savefig(save_name, bbox_inches = "tight",
                     dpi = 300)

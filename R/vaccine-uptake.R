@@ -4,6 +4,9 @@ library(ggplot2)
 library(see)
 library(BSol.mapR)
 
+male_color <- "#9657E0"
+female_color <- "#1DAA47"
+
 LSOA_IMD_lookup <- read.csv("data/WM-LSOA-lookup.csv")
 
 # Only load vaccine data if it's not already loaded
@@ -14,6 +17,10 @@ if(!exists("vaccine_data")) {
       "/covid_vaccinations-oct23_to_sept24.csv"
     )
   ) %>%
+    # Filter for only BSol LSOAs
+    filter(
+      LSOA %in% LSOA11@data$LSOA11
+    ) %>%
     mutate(
       Ethnicity = gsub("\\w: ","", ethnicity_description),
       Ethnicity = case_when(
@@ -60,6 +67,10 @@ if(!exists("GP_reg_data")) {
       "/GP_reg_data_full_Dec_24.csv"
     )
   ) %>%
+    # Filter for only BSol LSOAs
+    filter(
+      LSOA_2011 %in% LSOA11@data$LSOA11
+    ) %>%
     mutate(
       Ethnicity = case_when(
         Ethnic_Description_National == "British" ~ "White British",
@@ -117,7 +128,7 @@ p <- ggplot(female_data,
     fill = "",
     title = "Age distribution of Covid-19 Vaccine Recipients\n(October 23 – September 24)"
     ) +
-  scale_fill_manual(values = c("#18981a", "#880990")) +
+  scale_fill_manual(values = c(female_color, male_color)) +
   theme(
     legend.position = "top",
     plot.margin = unit(c(1,6,1,1), "lines"),
@@ -162,7 +173,7 @@ p2 <- vaccine_data %>%
     fill = "",
     title = "Ethnicty Distribution of Covid-19 Vaccine Recipients\n(October 23 – September 24)"
   ) +
-  scale_fill_manual(values = c("#18981a", "#880990")) +
+  scale_fill_manual(values = c(female_color, male_color)) +
   theme(
     plot.title = element_text(hjust = 0.5),
     legend.position = "top",
@@ -274,7 +285,7 @@ p3 <- ggplot(eth_uptake_rates, aes(y = Ethnicity, x = perc_GP, fill = Sex)) +
     linetype = "",
     title = "Covid-19 Vaccine Uptake % by Ethnicity, Age, and Sex\n(October 23 – September 24)"
   ) +
-  scale_fill_manual(values = c("#18981a", "#880990")) +
+  scale_fill_manual(values = c(female_color, male_color)) +
   scale_linetype_manual(values = c("dashed")) +
   theme(
     legend.position = "top",
@@ -366,7 +377,7 @@ p4 <- ggplot(IMD_uptake, aes(y = IMD_quintile, x = perc_GP, fill = Sex)) +
     linetype = "",
     title = "Covid-19 Vaccine Uptake % by IMD Quintile, Age, and Sex\n(October 23 – September 24)"
   ) +
-  scale_fill_manual(values = c("#18981a", "#880990")) +
+  scale_fill_manual(values = c(female_color, male_color)) +
   scale_linetype_manual(values = c("dashed")) +
   theme(
     legend.position = "top",
@@ -467,6 +478,7 @@ write.csv(
   )
 )
 
+
 #################################################################
 #               Calculate areas of opportunity                  # 
 #################################################################
@@ -555,7 +567,7 @@ plt_unvaxed_eth <- unvaxed %>%
     y = "",
     title = "Estimated Number of Residents not Vaccinated for Covid-19 by Ethnicity, Age, and Sex\n(October 2023 – September 2024)"
   ) +
-  scale_fill_manual(values = c("#18981a", "#880990")) +
+  scale_fill_manual(values = c(female_color, male_color)) +
   theme(
     legend.position = "top",
     plot.title = element_text(hjust = 0.5)
@@ -582,7 +594,7 @@ plt_unvaxed_IMD <- unvaxed %>%
     y = "",
     title = "Estimated Number of Residents not Vaccinated for Covid-19 by IMD Quintile, Age, and Sex\n(October 2023 – September 2024)"
   ) +
-  scale_fill_manual(values = c("#18981a", "#880990")) +
+  scale_fill_manual(values = c(female_color, male_color)) +
   theme(
     legend.position = "top",
     plot.title = element_text(hjust = 0.5)
@@ -592,7 +604,7 @@ plt_unvaxed_IMD
 ggsave("output/unvaccinated/unvaccinated_imd.png", plt_unvaxed_IMD,
        width = 9, height = 7)
 
-# Estimate number for IMD and ethnicity
+# Estimate number for IMD, ethnicity, age, and sex
 unvaxed_count_eth_IMD <- unvaxed %>%
   mutate(IMD_quintile = as.character(IMD_quintile)) %>%
   group_by(Sex, Ethnicity, IMD_quintile, Age_Group) %>%
@@ -606,6 +618,20 @@ write.csv(
   )
 )
 
+# Estimate number for IMD, ethnicity, and age 
+unvaxed_count_eth_IMD_both <- unvaxed %>%
+  mutate(IMD_quintile = as.character(IMD_quintile)) %>%
+  group_by(Ethnicity, IMD_quintile, Age_Group) %>%
+  summarise(number_unvaxed = sum(number_unvaxed))
+# Save for plotting in python using EquiPy
+write.csv(
+  unvaxed_count_eth_IMD_both,
+  paste0(
+    vaccine_data_path,
+    "/covid_unvaccinated_counts_comb-oct23_to_sept24.csv"
+  )
+)
+
 # Map unvaccinated estimates in for each constituency for:
 # - Indian
 # - Pakistani
@@ -613,7 +639,7 @@ write.csv(
 # - White British
 # For everyone aged 65+
 
-unvaxed_const <- vaccine_data %>%
+unvaxed_LSOA <- vaccine_data %>%
   filter(
     age >= 65
   ) %>%
@@ -643,11 +669,11 @@ unvaxed_const <- vaccine_data %>%
     LSOA11 = LSOA
   )
 
-focus_eths <- c("Indian", "Pakistani", 
+focus_eths <- c("Indian", "Pakistani", "Caribbean",
                 "Any other white background", 
                 "White British")
 for (eth_i in focus_eths) {
-  unvaxed_const_i <- unvaxed_const %>%
+  unvaxed_LSOA_i <- unvaxed_LSOA %>%
     filter(
       Ethnicity == eth_i
     ) %>%
@@ -660,11 +686,11 @@ for (eth_i in focus_eths) {
   map_title <- paste(
     "Estimated number of",
     eth_i,
-    "residents who didn't receive a Covid-19 vaccine between Oct 2023 and Sept 2024"
+    "residents aged 65+ who didn't receive a Covid-19 vaccine between Oct 2023 and Sept 2024"
   )
   
   map <- plot_map(
-    unvaxed_const_i,
+    unvaxed_LSOA_i,
     "number_unvaxed",
     map_type = "LSOA11",
     fill_missing  = 0,

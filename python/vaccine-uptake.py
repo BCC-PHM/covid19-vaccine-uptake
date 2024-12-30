@@ -50,12 +50,13 @@ for age_grp in np.unique(data["Age_Group"]):
         
         fig = Mat.inequality_map(N_table, 
                             perc_pivot = perc_table,
-                            title = "Covid-19 Vaccine\nUptake %",
+                            title = "Covid-19 Vaccine\nUptake % (" +sex+ ")",
                             #ttest = True,
                             letter="",
                             CI_method = "Byar",
                             palette = plot_colors[sex],
-                            bar_rel_size = [0.25, 0.25]
+                            bar_rel_size = [0.26, 0.24],
+                            width = 6.4
                             )
         
         fig.axes[0].set_xlabel("")
@@ -98,7 +99,7 @@ for age_grp in np.unique(data2["Age_Group"]):
         
         # Plot inequality matrix
         fig = Mat.inequality_map(N_table, 
-                            title = "# Unvaccinated",
+                            title = "# Unvaccinated\n(" +sex+ ")",
                             #ttest = True,
                             letter="",
                             palette = plot_colors[sex],
@@ -123,3 +124,58 @@ for age_grp in np.unique(data2["Age_Group"]):
         fig.savefig(save_name, bbox_inches = "tight",
                     dpi = 300)
 plt.close("all")
+
+
+#%% Same but for males and females
+
+data3 = pd.read_csv(
+    config.vaccine_data_path + "\\covid_unvaccinated_counts_comb-oct23_to_sept24.csv"
+    )
+
+eth_order = ['Any other Asian background', 'Bangladeshi', 'Indian', 
+             'Pakistani', 'African', 'Any other Black background', 
+             'Caribbean', 'Any other mixed background', 'White and Asian',
+             'White and Black African', 'White and Black Caribbean',
+             'Any other ethnic group', 'Chinese',
+             'Any other white background', 'Irish', 'White British']
+
+data3["IMD Quintile"] = data3["IMD_quintile"]
+
+for age_grp in np.unique(data3["Age_Group"]):
+    data_age = data3[data3["Age_Group"] == age_grp]
+    
+    # Calcuate counts pivot
+    N_table = data_age[["Ethnicity", "IMD Quintile", "number_unvaxed"]].pivot_table(
+        values = "number_unvaxed", 
+        index = "IMD Quintile",
+        columns = "Ethnicity"
+        ).fillna(0).astype(int).loc[:, eth_order]
+    
+    # Plot inequality matrix
+    fig = Mat.inequality_map(N_table, 
+                        title = "# Unvaccinated\n(" +sex+ ")",
+                        #ttest = True,
+                        letter="",
+                        palette = "Blues",
+                        width = 15,
+                        height = 7,
+                        supp_thresh = 5,
+                        supp_label = "<5",
+                        bar_rel_size = [0.2, 0.12]
+                        )
+
+    fig.axes[0].set_xticklabels(
+        fig.axes[0].get_xticklabels(), 
+        rotation = 45,
+        ha = "right",
+        rotation_mode='anchor'
+        )
+    fig.axes[0].set_xlabel("")
+    
+    save_name = "..\\output\\unvaccinated\\eth-IMD-matricies\\" + \
+        "Unvaxed-{}-{}.png".format(age_grp, "both")
+
+    fig.savefig(save_name, bbox_inches = "tight",
+                dpi = 300)
+plt.close("all")
+

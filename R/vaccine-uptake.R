@@ -38,6 +38,23 @@ if(!exists("vaccine_data")) {
       Ethnicity = gsub("black", "Black", Ethnicity),
       Ethnicity = gsub("african", "African", Ethnicity),
       Ethnicity = gsub("caribbean", "Caribbean", Ethnicity),
+      BroadEthnicity = case_when(
+        Ethnicity %in% c("Pakistani", "Indian", 
+                         "Bangladeshi", "Other Asian",
+                         "Chinese") ~ "Asian",
+        Ethnicity %in% c("African", "Caribbean", 
+                         "Other Black") ~ "Black",
+        Ethnicity %in% c("White and Black Caribbean", 
+                         "White and Black African", 
+                         "White and Asian",
+                         "Mixed other") ~ "Mixed",
+        Ethnicity %in% c("White British", "Irish", 
+                         "Other White",
+                         "Gypsy or Irish Traveller",
+                         "Roma") ~ "White",
+        Ethnicity %in% c("Any other ethnic group", "Arab") ~ "Other",
+        Ethnicity %in% c("Not stated") ~ "Unknown"
+      )
     ) %>%
     rename(Sex = gender) %>%
     left_join(LSOA_IMD_lookup %>%
@@ -104,18 +121,18 @@ if(!exists("GP_reg_data")) {
 ##### Age #####
 
 # Plot age distribution of those receiving the Covid-19 vaccine
-female_data <- vaccine_data %>% filter(gender == "Female")
-male_data <- vaccine_data %>% filter(gender == "Male")
+female_data <- vaccine_data %>% filter(Sex == "Female")
+male_data <- vaccine_data %>% filter(Sex == "Male")
 
 age_annotation <- vaccine_data %>%
-  group_by(Ethnicity, gender) %>%
-  filter(gender %in% c("Female", "Male")) %>%
+  group_by(Ethnicity, Sex) %>%
+  filter(Sex %in% c("Female", "Male")) %>%
   summarise(
     median_age = median(age, rm.na = T)
   ) %>%
   tidyr::pivot_wider(
     id_cols = Ethnicity,
-    names_from = gender,
+    names_from = Sex,
     values_from = median_age
   ) %>%
   mutate(
@@ -160,13 +177,13 @@ ggsave("output/age_dist.png", p,
 ##### Ethnicity #####
 
 p2 <- vaccine_data %>%
-  filter(gender %in% c("Female", "Male")) %>%
-  count(Ethnicity, gender) %>%
+  filter(Sex %in% c("Female", "Male")) %>%
+  count(Ethnicity, Sex) %>%
   mutate(
      plot_num = prettyNum(n, big.mark = ",", scientific = F)
   ) %>%
   ggplot( 
-    aes(y = Ethnicity, x = n, fill = gender)
+    aes(y = Ethnicity, x = n, fill = Sex)
     ) +
   geom_col(
     position = "dodge",
@@ -620,14 +637,17 @@ write.csv(
 # Map unvaccinated estimates in for each constituency for:
 # - Indian
 # - Pakistani
+# - Bangladeshi 
+# - Caribbean
+# - African
 # - Any other White background
 # - White British
-# For everyone aged 65+
+# For everyone aged less than 65
 
 unvaxed_LSOA <- GP_reg_data %>%
   filter(
-    AgeBand %in% c("65-69","70-74","75-79","80-84","85-89","90-94","95-99",
-                   "100-104","105-109","110-114"),
+    !(AgeBand %in% c("65-69","70-74","75-79","80-84","85-89","90-94","95-99",
+                   "100-104","105-109","110-114")),
     Ethnicity != "Not Known",
     LSOA %in% LSOA11@data$LSOA11
   ) %>% 
@@ -732,9 +752,97 @@ for (eth_i in c(eth_order, "All")) {
     map_title = map_title
   )
   save_name <- paste0(
-    "output/unvaccinated/maps/",
+    "output/unvaccinated/maps/less-than-65/",
     gsub(" ", "-", eth_i),
     ".png"
   )
   save_map(map, save_name)
 }
+
+unvaxed_eth_tables <- list()
+    
+for (eth_i in c(eth_order, "All")) {
+  if (eth_i != "All") {
+    unvaxed_LSOA_i <- unvaxed_LSOA %>%
+      filter(
+        Ethnicity == eth_i
+      ) 
+    
+    map_title <- paste(
+      "Estimated number of",
+      eth_i,
+      "residents aged less than 65 who didn't receive a Covid-19",
+      "vaccine between Oct 2023 and Sept 2024"
+    )
+    
+  } else {
+    unvaxed_LSOA_i <- unvaxed_LSOA %>%
+      group_by(
+        LSOA11, Constituency
+      ) %>%
+      summarise(
+        number_unvaxed = sum(number_unvaxed),
+        total_number = sum(total_number)
+      )
+    
+    map_title <- paste(
+      "Estimated number of residents",
+      "of all ethnicities",
+      "aged less than 65 who didn't receive a Covid-19 vaccine",
+      "between Oct 2023 and Sept 2024"
+    )
+  }
+
+  print(eth_i)
+  print(paste(
+    sum(unvaxed_LSOA_i$number_unvaxed),
+    "of",
+    sum(unvaxed_LSOA_i$total_number)
+    )
+    )
+  unvaxed_eth_table_i <- unvaxed_LSOA_i %>%
+    group_by(Constituency) %>%
+    summarise(
+      number_unvaxed = sum(number_unvaxed),
+      total_number = sum(total_number)
+    ) %>%
+    ungroup() %>%
+    mutate(
+      perc = round(100*number_unvaxed / sum(number_unvaxed), 1)
+    ) %>%
+    arrange(desc(perc))
+  
+  print(unvaxed_eth_table_i)
+  
+  unvaxed_eth_tables[[eth_i]] <- unvaxed_eth_table_i
+  
+  # Make sure that counts less than 5 are suppressed
+  unvaxed_LSOA_i <- unvaxed_LSOA_i %>%
+    mutate(
+      number_unvaxed = case_when(
+        number_unvaxed < 5 ~ 0,
+        TRUE ~ number_unvaxed
+      )
+    )
+
+  
+  map <- plot_map(
+    unvaxed_LSOA_i,
+    "number_unvaxed",
+    map_type = "LSOA11",
+    fill_missing  = 0,
+    style = "cont",
+    map_title = map_title
+  )
+  save_name <- paste0(
+    "output/unvaccinated/maps/less-than-65/",
+    gsub(" ", "-", eth_i),
+    ".png"
+  )
+  save_map(map, save_name)
+}
+
+writexl::write_xlsx(
+  unvaxed_eth_tables, 
+  "output/unvaccinated/unvaccinated-by-const-less-than-65.xlsx"
+  )

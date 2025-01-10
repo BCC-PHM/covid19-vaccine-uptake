@@ -49,7 +49,7 @@ for age_grp in np.unique(data["Age_Group"]):
         perc_table = 100 * n_table / N_table
         
         fig = Mat.inequality_map(N_table, 
-                            perc_pivot = perc_table,
+                            agg_pivot = perc_table,
                             title = "Covid-19 Vaccine\nUptake % (" +sex+ ")",
                             #ttest = True,
                             letter="",
@@ -153,7 +153,7 @@ for age_grp in np.unique(data3["Age_Group"]):
     
     # Plot inequality matrix
     fig = Mat.inequality_map(N_table, 
-                        title = "# Unvaccinated\n(" +sex+ ")",
+                        title = "# Unvaccinated",
                         #ttest = True,
                         letter="",
                         palette = "Blues",
